@@ -29,6 +29,8 @@ env:
 
   # Common variables
   IMAGE_TAG_EGY: 'egy-latest-debug'
+  OSM_FILE: 'egypt-latest.osm.pbf'
+  OSM_URL: 'http://download.geofabrik.de/africa/egypt-latest.osm.pbf'
 
 jobs:
   EGY-Build-and-Push-Images-Update-Image-Tag:
@@ -67,8 +69,30 @@ jobs:
             exit 1
           fi
 
+      # Cache OSM data file to avoid re-downloading (MAJOR TIME SAVER)
+      - name: Cache OSM data
+        id: cache-osm
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PATH_EGY }}/${{ env.OSM_FILE }}
+            ${{ env.PATH_EGY }}/egypt-latest.osrm*
+          key: ${{ runner.os }}-osm-data-egy-${{ hashFiles('**/Dockerfile') }}-${{ env.OSM_FILE }}
+          restore-keys: |
+            ${{ runner.os }}-osm-data-egy-${{ env.OSM_FILE }}
+
+      # Download OSM data only if not cached (SAVES 1+ HOUR)
+      - name: Download OSM data (if not cached)
+        if: steps.cache-osm.outputs.cache-hit != 'true'
+        run: |
+          cd ${{ env.PATH_EGY }}
+          wget -c ${{ env.OSM_URL }} -O ${{ env.OSM_FILE }}
+        shell: bash
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -81,7 +105,17 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push EGY docker image to Amazon ECR with cache
+      # Cache Docker layers using local cache
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/.buildx-cache
+          key: ${{ runner.os }}-buildx-egy-${{ github.event.inputs.env }}-${{ hashFiles('**/Dockerfile') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-egy-${{ github.event.inputs.env }}-${{ hashFiles('**/Dockerfile') }}-
+            ${{ runner.os }}-buildx-egy-${{ github.event.inputs.env }}-
+
+      - name: Build and push EGY docker image to Amazon ECR with optimized cache
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           FULL_IMAGE_TAG: ${{ env.IMAGE_TAG_EGY }}-${{ github.sha }}
@@ -90,9 +124,25 @@ jobs:
           context: ${{ env.PATH_EGY }}
           push: true
           tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.FULL_IMAGE_TAG }}
-          cache-from: type=gha, scope=egy-${{ github.event.inputs.env }}
-          cache-to: type=gha,mode=max,scope=egy-${{ github.event.inputs.env }}
+          # Multiple cache sources for maximum efficiency
+          cache-from: |
+            type=local,src=${{ runner.temp }}/.buildx-cache
+            type=gha,scope=egy-${{ github.event.inputs.env }}
+            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
+          cache-to: |
+            type=local,dest=${{ runner.temp }}/.buildx-cache-new,mode=max
+            type=gha,mode=max,scope=egy-${{ github.event.inputs.env }}
+            type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
           platforms: linux/amd64
+          # Enable BuildKit features for better caching
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      # Move cache to prevent size growth (workaround for buildkit issue)
+      - name: Move cache
+        run: |
+          rm -rf ${{ runner.temp }}/.buildx-cache
+          mv ${{ runner.temp }}/.buildx-cache-new ${{ runner.temp }}/.buildx-cache
 
       - name: Log EGY build completion
         env:
@@ -104,3 +154,9 @@ jobs:
           echo "✅ Successfully built and pushed EGY image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.FULL_IMAGE_TAG }}"
           echo "🌍 Environment: ${{ env.ENVIRONMENT }}"
           echo "📦 Namespace: ${{ env.NAMESPACE }}"
+          echo "⚡ Build time optimized with multi-layer caching"
+          if [ "${{ steps.cache-osm.outputs.cache-hit }}" = "true" ]; then
+            echo "🎯 OSM data cache hit - saved significant download time!"
+          else
+            echo "📥 OSM data downloaded - will be cached for next build"
+          fi
