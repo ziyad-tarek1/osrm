@@ -1,0 +1,104 @@
+name: KSA OSRM Build and Push Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Select environment'
+        required: true
+        default: 'stg'
+        type: choice
+        options:
+          - stg
+          - prod
+
+env:  
+  #############################
+  ############ KSA ############
+  #############################
+
+  # Staging environment variables
+  PATH_STG_KSA: 'environments/stg/osrm/ksa'
+  ECR_REPOSITORY_STG: 'rabbitmart-stg/os-osrm-backend'
+  NAMESPACE_STG: 'vroom-osrm-stg'
+
+  # Production environment variables
+  PATH_PROD_KSA: 'environments/prod/osrm/ksa'
+  ECR_REPOSITORY_PROD: 'rabbitmart-prod/os-osrm-backend-ksa'
+  NAMESPACE_PROD: 'vroom-osrm-prod'
+
+  # Common variables
+  IMAGE_TAG_KSA: 'ksa-latest-debug'
+
+jobs:
+  KSA-Build-and-Push-Images-Update-Image-Tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set environment variables
+        shell: bash
+        run: |
+          if [ "${{ github.event.inputs.env }}" = "prod" ]; then
+            echo "ECR_REPOSITORY=${ECR_REPOSITORY_PROD}" >> $GITHUB_ENV
+            echo "NAMESPACE=${NAMESPACE_PROD}" >> $GITHUB_ENV
+            echo "PATH_KSA=${PATH_PROD_KSA}" >> $GITHUB_ENV
+            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID_PROD }}" >> $GITHUB_ENV
+            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}" >> $GITHUB_ENV
+            echo "EKS_CLUSTER=${{ secrets.EKS_CLUSTER_PROD }}" >> $GITHUB_ENV
+            echo "ENVIRONMENT=prod" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.env }}" = "stg" ]; then
+            echo "ECR_REPOSITORY=${ECR_REPOSITORY_STG}" >> $GITHUB_ENV
+            echo "NAMESPACE=${NAMESPACE_STG}" >> $GITHUB_ENV
+            echo "PATH_KSA=${PATH_STG_KSA}" >> $GITHUB_ENV
+            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}" >> $GITHUB_ENV
+            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}" >> $GITHUB_ENV
+            echo "EKS_CLUSTER=${{ secrets.EKS_CLUSTER_STG }}" >> $GITHUB_ENV
+            echo "ENVIRONMENT=stg" >> $GITHUB_ENV
+          else
+            echo "Invalid environment!"
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push KSA docker image to Amazon ECR with cache
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          FULL_IMAGE_TAG: ${{ env.IMAGE_TAG_KSA }}-${{ github.sha }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.PATH_KSA }}
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.FULL_IMAGE_TAG }}
+          cache-from: type=gha, scope=ksa-${{ github.event.inputs.env }}
+          cache-to: type=gha,mode=max,scope=ksa-${{ github.event.inputs.env }}
+          platforms: linux/amd64
+
+      - name: Log KSA build completion
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          FULL_IMAGE_TAG: ${{ env.IMAGE_TAG_KSA }}-${{ github.sha }}
+        run: |
+          echo "🏗️ KSA OSRM-${{ env.ENVIRONMENT }} Docker image build completed"
+          echo "📂 Build context: ${{ env.PATH_KSA }}"
+          echo "✅ Successfully built and pushed KSA image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.FULL_IMAGE_TAG }}"
+          echo "🌍 Environment: ${{ env.ENVIRONMENT }}"
+          echo "📦 Namespace: ${{ env.NAMESPACE }}"
