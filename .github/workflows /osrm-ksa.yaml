@@ -24,7 +24,7 @@ env:
 
   # Production environment variables
   PATH_PROD_KSA: 'environments/prod/osrm/ksa'
-  ECR_REPOSITORY_PROD: 'rabbitmart-prod/os-osrm-backend-ksa'
+  ECR_REPOSITORY_PROD: 'ziyad-ksa-prod/os-osrm-backend'
   NAMESPACE_PROD: 'vroom-osrm-prod'
 
   # Common variables
@@ -38,8 +38,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+        # with:
+        #   token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set environment variables
         shell: bash
@@ -73,7 +73,7 @@ jobs:
         with:
           aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-1
+          aws-region: us-east-1
 
       - name: Login to Amazon ECR
         id: login-ecr

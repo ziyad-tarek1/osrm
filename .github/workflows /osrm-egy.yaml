@@ -1,4 +1,4 @@
-name: EGY OSRM Build and Push OSRM Images
+name: EGY OSRM Build and Push Images
 
 on:
   workflow_dispatch:
@@ -19,12 +19,12 @@ env:
 
   # Staging environment variables
   PATH_STG_EGY: 'environments/stg/osrm/egy'
-  ECR_REPOSITORY_STG: 'rabbitmart-stg/os-osrm-backend'
+  ECR_REPOSITORY_STG: 'ziyad-stg/os-osrm-backend'
   NAMESPACE_STG: 'vroom-osrm-stg'
 
   # Production environment variables
   PATH_PROD_EGY: 'environments/prod/osrm/egy'
-  ECR_REPOSITORY_PROD: 'rabbitmart-prod/os-osrm-backend-egy'  
+  ECR_REPOSITORY_PROD: 'ziyad-prod/os-osrm-backend'  
   NAMESPACE_PROD: 'vroom-osrm-prod'
 
   # Common variables
@@ -40,8 +40,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+        # with:
+        #   token: ${{ secrets.GITHUB_TOKEN }}
   
       - name: Set environment variables
         shell: bash
@@ -75,7 +75,7 @@ jobs:
         with:
           aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-1
+          aws-region: us-east-1
 
       - name: Login to Amazon ECR
         id: login-ecr
