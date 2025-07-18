@@ -19,7 +19,7 @@ env:
 
   # Staging environment variables
   PATH_STG_KSA: 'environments/stg/osrm/ksa'
-  ECR_REPOSITORY_STG: 'rabbitmart-stg/os-osrm-backend'
+  ECR_REPOSITORY_STG: 'ziyad-ksa-stg/os-osrm-backend'
   NAMESPACE_STG: 'vroom-osrm-stg'
 
   # Production environment variables
