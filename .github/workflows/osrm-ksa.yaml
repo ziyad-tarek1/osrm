@@ -71,15 +71,29 @@ jobs:
       - name: Get OSM file last modified date
         id: osm-version
         run: |
-          # Get the Last-Modified header from the OSM file URL
-          LAST_MODIFIED=$(curl -sI "${{ env.OSM_URL }}" | grep -i "last-modified" | cut -d' ' -f2- | tr -d '\r\n')
+          echo "🔍 Checking OSM file version..."
+          
+          # Try to get the Last-Modified header from the OSM file URL
+          LAST_MODIFIED=""
+          if command -v curl >/dev/null 2>&1; then
+            echo "📡 Fetching Last-Modified header..."
+            LAST_MODIFIED=$(curl -sI "${{ env.OSM_URL }}" --connect-timeout 30 --max-time 60 | grep -i "last-modified" | cut -d' ' -f2- | tr -d '\r\n' || echo "")
+          fi
+          
+          # Fallback: use current date if header not available
           if [ -z "$LAST_MODIFIED" ]; then
-            # Fallback: use current date if header not available
+            echo "⚠️ Could not get Last-Modified header, using current date"
             LAST_MODIFIED=$(date -u +"%Y-%m-%d")
           fi
+          
+          # Clean up the date string and make it cache-key safe
+          LAST_MODIFIED_CLEAN=$(echo "$LAST_MODIFIED" | tr ' :,' '-' | tr -d '\r\n')
+          
           echo "OSM_LAST_MODIFIED=$LAST_MODIFIED" >> $GITHUB_ENV
-          echo "osm-version=$LAST_MODIFIED" >> $GITHUB_OUTPUT
+          echo "OSM_LAST_MODIFIED_CLEAN=$LAST_MODIFIED_CLEAN" >> $GITHUB_ENV
+          echo "osm-version=$LAST_MODIFIED_CLEAN" >> $GITHUB_OUTPUT
           echo "🔍 OSM file last modified: $LAST_MODIFIED"
+          echo "🔑 Cache key version: $LAST_MODIFIED_CLEAN"
 
       # Cache OSM data file with version detection
       - name: Cache OSM data
@@ -89,9 +103,10 @@ jobs:
           path: |
             ${{ env.PATH_KSA }}/${{ env.OSM_FILE }}
             ${{ env.PATH_KSA }}/gcc-states-latest.osrm*
-          key: ${{ runner.os }}-osm-data-ksa-${{ hashFiles('**/Dockerfile') }}-${{ env.OSM_FILE }}-${{ steps.osm-version.outputs.osm-version }}
+          key: ${{ runner.os }}-osm-data-ksa-${{ hashFiles('**/Dockerfile') }}-${{ env.OSM_FILE }}-${{ env.OSM_LAST_MODIFIED_CLEAN }}
           restore-keys: |
             ${{ runner.os }}-osm-data-ksa-${{ env.OSM_FILE }}-
+            ${{ runner.os }}-osm-data-ksa-
 
       # Download OSM data only if not cached or if source updated
       - name: Download OSM data (if not cached or updated)
