@@ -67,7 +67,21 @@ jobs:
             exit 1
           fi
 
-      # Cache OSM data file to avoid re-downloading (MAJOR TIME SAVER)
+      # Check OSM file last modified date to detect updates
+      - name: Get OSM file last modified date
+        id: osm-version
+        run: |
+          # Get the Last-Modified header from the OSM file URL
+          LAST_MODIFIED=$(curl -sI "${{ env.OSM_URL }}" | grep -i "last-modified" | cut -d' ' -f2- | tr -d '\r\n')
+          if [ -z "$LAST_MODIFIED" ]; then
+            # Fallback: use current date if header not available
+            LAST_MODIFIED=$(date -u +"%Y-%m-%d")
+          fi
+          echo "OSM_LAST_MODIFIED=$LAST_MODIFIED" >> $GITHUB_ENV
+          echo "osm-version=$LAST_MODIFIED" >> $GITHUB_OUTPUT
+          echo "🔍 OSM file last modified: $LAST_MODIFIED"
+
+      # Cache OSM data file with version detection
       - name: Cache OSM data
         id: cache-osm
         uses: actions/cache@v4
@@ -75,16 +89,18 @@ jobs:
           path: |
             ${{ env.PATH_KSA }}/${{ env.OSM_FILE }}
             ${{ env.PATH_KSA }}/gcc-states-latest.osrm*
-          key: ${{ runner.os }}-osm-data-ksa-${{ hashFiles('**/Dockerfile') }}-${{ env.OSM_FILE }}
+          key: ${{ runner.os }}-osm-data-ksa-${{ hashFiles('**/Dockerfile') }}-${{ env.OSM_FILE }}-${{ steps.osm-version.outputs.osm-version }}
           restore-keys: |
-            ${{ runner.os }}-osm-data-ksa-${{ env.OSM_FILE }}
+            ${{ runner.os }}-osm-data-ksa-${{ env.OSM_FILE }}-
 
-      # Download OSM data only if not cached (SAVES 1+ HOUR)
-      - name: Download OSM data (if not cached)
+      # Download OSM data only if not cached or if source updated
+      - name: Download OSM data (if not cached or updated)
         if: steps.cache-osm.outputs.cache-hit != 'true'
         run: |
           cd ${{ env.PATH_KSA }}
+          echo "📥 Downloading latest OSM data..."
           wget -c ${{ env.OSM_URL }} -O ${{ env.OSM_FILE }}
+          echo "✅ OSM data downloaded successfully"
         shell: bash
 
       - name: Set up Docker Buildx
@@ -158,3 +174,4 @@ jobs:
           else
             echo "📥 OSM data downloaded - will be cached for next build"
           fi
+          echo "🔄 OSM file version: ${{ env.OSM_LAST_MODIFIED }}"
